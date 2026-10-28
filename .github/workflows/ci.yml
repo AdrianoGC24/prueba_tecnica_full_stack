@@ -68,7 +68,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Ejecutar pruebas automatizadas con Pytest (SQLite in-memory)
-        run: pytest tests/test_business.py -v
+        run: PYTHONPATH=. pytest tests/test_business.py -v
 
   # ============================================================================
   # 3. CI: Frontend (React + TypeScript + Vite)
