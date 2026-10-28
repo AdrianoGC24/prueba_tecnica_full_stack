@@ -1,0 +1,7 @@
+node_modules
+dist
+package-lock.json
+.git
+.env
+.env.local
+npm-debug.log

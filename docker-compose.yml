@@ -1,0 +1,102 @@
+services:
+  # ===========================================================================
+  # 1. BASE DE DATOS RELACIONAL (PostgreSQL 15)
+  # Contiene dos bases de datos aisladas: auth_db y business_db
+  # ===========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: mining_motors_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # 2. SERVICIO 1: API DE AUTENTICACIÓN Y USUARIOS (Express + TypeScript)
+  # Conectado únicamente a auth_db. Firma los tokens JWT.
+  # ===========================================================================
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: mining_motors_auth
+    restart: unless-stopped
+    ports:
+      - "${AUTH_PORT:-4000}:4000"
+    environment:
+      PORT: 4000
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/auth_db
+      JWT_SECRET: ${JWT_SECRET:-secreto_compartido_mineria_2026_seguro}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  # ===========================================================================
+  # 3. SERVICIO 2: API DE NEGOCIO (FastAPI + Python)
+  # Conectado únicamente a business_db. Valida la firma de los tokens JWT.
+  # ===========================================================================
+  business-service:
+    build:
+      context: ./business-service
+      dockerfile: Dockerfile
+    container_name: mining_motors_business
+    restart: unless-stopped
+    ports:
+      - "${BUSINESS_PORT:-8000}:8000"
+    environment:
+      PORT: 8000
+      ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/business_db
+      JWT_SECRET: ${JWT_SECRET:-secreto_compartido_mineria_2026_seguro}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  # ===========================================================================
+  # 4. FRONTEND WEB (React + TypeScript + Vite)
+  # Se autentica con auth-service (:4000) y consume datos de business-service (:8000)
+  # ===========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mining_motors_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      VITE_AUTH_API_URL: ${VITE_AUTH_API_URL:-http://localhost:4000/api}
+      VITE_BUSINESS_API_URL: ${VITE_BUSINESS_API_URL:-http://localhost:8000/api}
+    depends_on:
+      - auth-service
+      - business-service
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
